@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 public class PaymentRequestDTO {
     private String orderId;
     private String userId;
-    private BigDecimal amount;
+    private Long amount;
     private String currency;
     private String paymentMethodId;
 }
