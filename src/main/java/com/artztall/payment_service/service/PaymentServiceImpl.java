@@ -57,12 +57,12 @@ public class PaymentServiceImpl implements PaymentService{
     }
 
     @Override
-    public PaymentResponseDTO confirmPayment(String paymentIntentId){
+    public PaymentResponseDTO confirmPayment(String paymentIntendId){
         try{
-            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
+            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntendId);
             paymentIntent.confirm();
 
-           Payment payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId);
+           Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntendId);
            payment.setPaymentStatus(PaymentStatus.COMPLETED);
            payment.setUpdatedAt(LocalDateTime.now());
            paymentRepository.save(payment);
