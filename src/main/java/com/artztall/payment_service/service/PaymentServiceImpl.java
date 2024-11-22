@@ -1,107 +1,194 @@
 package com.artztall.payment_service.service;
 
+import com.artztall.payment_service.dto.OrderResponseDTO;
 import com.artztall.payment_service.dto.PaymentRequestDTO;
 import com.artztall.payment_service.dto.PaymentResponseDTO;
+import com.artztall.payment_service.exception.PaymentNotFoundException;
+import com.artztall.payment_service.exception.PaymentProcessingException;
 import com.artztall.payment_service.model.Payment;
 import com.artztall.payment_service.model.PaymentStatus;
 import com.artztall.payment_service.repository.PaymentRepository;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.Refund;
 import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.RefundCreateParams;
+import com.stripe.param.PaymentIntentConfirmParams;
+import com.stripe.net.RequestOptions;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cglib.core.Local;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentServiceImpl implements PaymentService{
+public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
+    private final OrderClientService orderClientService;
 
     @Override
-    public PaymentResponseDTO createPayment(PaymentRequestDTO paymentRequest){
-        try{
+    public PaymentResponseDTO createPayment(PaymentRequestDTO paymentRequest) {
+        try {
+            log.info("Processing payment for order: {}", paymentRequest.getOrderId());
+            OrderResponseDTO orderResponseDTO = orderClientService.getOrder(paymentRequest.getOrderId());
+
+            validatePaymentRequest(paymentRequest);
+
+            // Create parameters for Stripe
             PaymentIntentCreateParams createParams = PaymentIntentCreateParams.builder()
-                    .setAmount(paymentRequest.getAmount())
+                    .setAmount(orderResponseDTO.getTotalAmount().longValue())
                     .setCurrency(paymentRequest.getCurrency())
                     .setPaymentMethod(paymentRequest.getPaymentMethodId())
                     .setConfirmationMethod(PaymentIntentCreateParams.ConfirmationMethod.MANUAL)
                     .build();
 
-            PaymentIntent paymentIntent = PaymentIntent.create(createParams);
+            // Create RequestOptions with idempotency key
+            RequestOptions requestOptions = RequestOptions.builder()
+                    .setIdempotencyKey(paymentRequest.getOrderId())
+                    .build();
 
-            Payment payment = new Payment();
+            // Create PaymentIntent with proper RequestOptions
+            PaymentIntent paymentIntent = PaymentIntent.create(createParams, requestOptions);
 
-            payment.setOrderId(paymentRequest.getOrderId());
-            payment.setUserid(paymentRequest.getUserId());
-            payment.setAmount(paymentRequest.getAmount());
-            payment.setCurrency(paymentRequest.getCurrency());
-            payment.setStripPaymentIntendId(paymentIntent.getId());
-            payment.setPaymentStatus(PaymentStatus.PENDING);
-            payment.setCreatedAt(LocalDateTime.now());
-            payment.setUpdatedAt(LocalDateTime.now());
+            Payment payment = Payment.builder()
+                    .orderId(paymentRequest.getOrderId())
+                    .userId(paymentRequest.getUserId())
+                    .amount(orderResponseDTO.getTotalAmount().longValue())
+                    .currency(paymentRequest.getCurrency())
+                    .stripPaymentIntendId(paymentIntent.getId())
+                    .paymentStatus(PaymentStatus.PENDING)
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
 
-            PaymentResponseDTO response = new PaymentResponseDTO();
-            response.setPaymentId(payment.getId());
-            response.setClientSecret(paymentIntent.getClientSecret());
-            response.setStatus(PaymentStatus.PENDING);
-            return response;
+            payment = paymentRepository.save(payment);
+
+            log.info("Payment created successfully for order: {}", payment.getOrderId());
+
+            return PaymentResponseDTO.builder()
+                    .paymentId(payment.getId())
+                    .clientSecret(paymentIntent.getClientSecret())
+                    .status(PaymentStatus.PENDING)
+                    .message("Payment created successfully")
+                    .build();
 
         } catch (StripeException e) {
-            PaymentResponseDTO response = new PaymentResponseDTO();
-            response.setStatus(PaymentStatus.FAILED);
-            response.setMessage(e.getMessage());
-            return response;
+            log.error("Stripe payment processing failed for order: {}", paymentRequest.getOrderId(), e);
+            return PaymentResponseDTO.builder()
+                    .status(PaymentStatus.FAILED)
+                    .message(e.getMessage())
+                    .build();
         }
     }
 
     @Override
-    public PaymentResponseDTO confirmPayment(String paymentIntendId){
-        try{
-            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntendId);
-            paymentIntent.confirm();
+    public PaymentResponseDTO confirmPayment(String paymentIntentId) {
+        try {
+            log.info("Confirming payment for paymentIntentId: {}", paymentIntentId);
 
-           Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntendId);
-           payment.setPaymentStatus(PaymentStatus.COMPLETED);
-           payment.setUpdatedAt(LocalDateTime.now());
-           paymentRepository.save(payment);
+            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
+            PaymentIntentConfirmParams confirmParams = PaymentIntentConfirmParams.builder().build();
+            paymentIntent.confirm(confirmParams);
 
-           PaymentResponseDTO response = new PaymentResponseDTO();
+            Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
+            if (payment == null) {
+                throw new PaymentNotFoundException("Payment not found for intent: " + paymentIntentId);
+            }
 
-           response.setPaymentId(payment.getId());
-           response.setStatus(PaymentStatus.COMPLETED);
-           return response;
+            payment.setPaymentStatus(PaymentStatus.COMPLETED);
+            payment.setUpdatedAt(LocalDateTime.now());
+            payment = paymentRepository.save(payment);
 
+            return PaymentResponseDTO.builder()
+                    .paymentId(payment.getId())
+                    .status(PaymentStatus.COMPLETED)
+                    .message("Payment confirmed successfully")
+                    .build();
 
         } catch (StripeException e) {
-            PaymentResponseDTO response = new PaymentResponseDTO();
-            response.setStatus(PaymentStatus.FAILED);
-            response.setMessage(e.getMessage());
-            return response;
+            log.error("Payment confirmation failed for paymentIntentId: {}", paymentIntentId, e);
+            return PaymentResponseDTO.builder()
+                    .status(PaymentStatus.FAILED)
+                    .message("Payment confirmation failed: " + e.getMessage())
+                    .build();
         }
     }
-
 
     @Override
     public PaymentResponseDTO refundPayment(String paymentId) {
+        try {
+            log.info("Processing refund for payment: {}", paymentId);
 
-        return null;
+            Payment payment = paymentRepository.findById(paymentId)
+                    .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + paymentId));
+
+            if (payment.getPaymentStatus() != PaymentStatus.COMPLETED) {
+                throw new PaymentProcessingException("Only completed payments can be refunded");
+            }
+
+            RefundCreateParams refundParams = RefundCreateParams.builder()
+                    .setPaymentIntent(payment.getStripPaymentIntendId())
+                    .build();
+
+            RequestOptions requestOptions = RequestOptions.builder()
+                    .setIdempotencyKey("refund_" + payment.getId())
+                    .build();
+
+            Refund.create(refundParams, requestOptions);
+
+            payment.setPaymentStatus(PaymentStatus.REFUNDED);
+            payment.setUpdatedAt(LocalDateTime.now());
+            payment = paymentRepository.save(payment);
+
+            return PaymentResponseDTO.builder()
+                    .paymentId(payment.getId())
+                    .status(PaymentStatus.REFUNDED)
+                    .message("Payment refunded successfully")
+                    .build();
+
+        } catch (StripeException e) {
+            log.error("Refund failed for payment: {}", paymentId, e);
+            return PaymentResponseDTO.builder()
+                    .status(PaymentStatus.FAILED)
+                    .message("Refund processing failed: " + e.getMessage())
+                    .build();
+        }
     }
 
     @Override
     public PaymentResponseDTO getPaymentStatus(String paymentId) {
-        Payment payment = paymentRepository.findById(paymentId).orElse(null);
-        PaymentResponseDTO response = new PaymentResponseDTO();
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElse(null);
 
-        if (payment != null) {
-            response.setPaymentId(payment.getId());
-            response.setStatus(payment.getPaymentStatus());
-        } else {
-            response.setStatus(PaymentStatus.FAILED);
-            response.setMessage("Payment not found");
+        if (payment == null) {
+            return PaymentResponseDTO.builder()
+                    .status(PaymentStatus.FAILED)
+                    .message("Payment not found")
+                    .build();
         }
 
-        return response;
+        return PaymentResponseDTO.builder()
+                .paymentId(payment.getId())
+                .status(payment.getPaymentStatus())
+                .message("Payment status: " + payment.getPaymentStatus())
+                .build();
+    }
+
+    private void validatePaymentRequest(PaymentRequestDTO request) {
+        if (!StringUtils.hasText(request.getCurrency())) {
+            throw new IllegalArgumentException("Currency is required");
+        }
+        if (!StringUtils.hasText(request.getPaymentMethodId())) {
+            throw new IllegalArgumentException("Payment method is required");
+        }
+        if (!StringUtils.hasText(request.getOrderId())) {
+            throw new IllegalArgumentException("Order ID is required");
+        }
+        if (!StringUtils.hasText(request.getUserId())) {
+            throw new IllegalArgumentException("User ID is required");
+        }
     }
 }
