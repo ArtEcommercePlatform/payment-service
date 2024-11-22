@@ -18,4 +18,11 @@ public class WebClientConfig {
                 .baseUrl("http://localhost:8084")
                 .build();
     }
+
+    @Bean
+    public WebClient notificationServiceWebClient(WebClient.Builder webClientBuilder) {
+        return webClientBuilder
+                .baseUrl("http://localhost:8085")
+                .build();
+    }
 }

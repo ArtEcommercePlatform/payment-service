@@ -1,5 +1,6 @@
 package com.artztall.payment_service.service;
 
+import com.artztall.payment_service.dto.NotificationSendDTO;
 import com.artztall.payment_service.dto.OrderResponseDTO;
 import com.artztall.payment_service.dto.PaymentRequestDTO;
 import com.artztall.payment_service.dto.PaymentResponseDTO;
@@ -28,6 +29,7 @@ import java.time.LocalDateTime;
 public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final OrderClientService orderClientService;
+    private final NotificationClientService notificationClientService;
 
     @Override
     public PaymentResponseDTO createPayment(PaymentRequestDTO paymentRequest) {
@@ -65,6 +67,12 @@ public class PaymentServiceImpl implements PaymentService {
                     .build();
 
             payment = paymentRepository.save(payment);
+            NotificationSendDTO notification = new NotificationSendDTO();
+            notification.setUserId(payment.getUserId());
+            notification.setMessage("Payment Created Succesfully");
+            notification.setType("INFO");
+            notification.setActionUrl("http://localhost:5173");
+            notificationClientService.sendNotification(notification);
 
             log.info("Payment created successfully for order: {}", payment.getOrderId());
 
@@ -101,6 +109,13 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setPaymentStatus(PaymentStatus.COMPLETED);
             payment.setUpdatedAt(LocalDateTime.now());
             payment = paymentRepository.save(payment);
+
+            // Payment confirm
+            NotificationSendDTO notification = new NotificationSendDTO();
+            notification.setUserId(payment.getUserId());
+            notification.setType("INFO");
+            notification.setMessage("Your Payment #" + payment.getId() +"Completed");
+            notificationClientService.sendNotification(notification);
 
             return PaymentResponseDTO.builder()
                     .paymentId(payment.getId())
