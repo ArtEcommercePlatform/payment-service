@@ -2,9 +2,11 @@ package com.artztall.payment_service.dto;
 
 import com.artztall.payment_service.model.PaymentStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 import lombok.Data;
 
 @Data
+@Builder
 @Schema(description = "Payment response information")
 public class PaymentResponseDTO {
 
