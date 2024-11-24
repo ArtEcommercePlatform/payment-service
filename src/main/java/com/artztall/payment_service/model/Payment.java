@@ -19,6 +19,7 @@ public class Payment {
     private String currency;
     private String stripPaymentIntendId;
     private PaymentStatus paymentStatus;
+    private LocalDateTime expiresAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

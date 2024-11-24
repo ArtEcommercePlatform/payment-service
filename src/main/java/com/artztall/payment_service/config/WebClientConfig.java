@@ -25,4 +25,11 @@ public class WebClientConfig {
                 .baseUrl("http://localhost:8085")
                 .build();
     }
+
+    @Bean
+    public WebClient productServiceWebClient(WebClient.Builder webClientBuilder) {
+        return webClientBuilder
+                .baseUrl("http://localhost:8082")
+                .build();
+    }
 }

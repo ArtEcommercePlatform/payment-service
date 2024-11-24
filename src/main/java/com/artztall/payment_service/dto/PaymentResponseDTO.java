@@ -5,6 +5,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 @Data
 @Builder
 @Schema(description = "Payment response information")
@@ -25,4 +27,7 @@ public class PaymentResponseDTO {
     @Schema(description = "Additional information about the payment status",
             example = "Payment processed successfully")
     private String message;
+
+    @Schema(description = "expiration time")
+    private LocalDateTime expiresAt;
 }

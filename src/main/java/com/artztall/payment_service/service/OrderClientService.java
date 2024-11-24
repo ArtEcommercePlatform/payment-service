@@ -2,6 +2,7 @@ package com.artztall.payment_service.service;
 
 
 import com.artztall.payment_service.dto.OrderResponseDTO;
+import com.artztall.payment_service.model.OrderStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -18,4 +19,12 @@ public class OrderClientService {
                 .block();
     }
 
+    public void updateOrderStatus(String orderId, OrderStatus orderStatus) {
+        orderServiceWebClient.post()
+                .uri("/api/orders/" + orderId)
+                .bodyValue(orderStatus)
+                .retrieve()
+                .bodyToMono(OrderResponseDTO.class)
+                .block();
+    }
 }
