@@ -19,12 +19,16 @@ public class OrderClientService {
                 .block();
     }
 
-    public void updateOrderStatus(String orderId, OrderStatus orderStatus) {
-        orderServiceWebClient.post()
-                .uri("/api/orders/" + orderId)
-                .bodyValue(orderStatus)
+
+    public void updateOrderStatus(String orderId, OrderStatus status) {
+        orderServiceWebClient.put()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/orders/{orderId}/status")
+                        .queryParam("status", status)
+                        .build(orderId))
                 .retrieve()
                 .bodyToMono(OrderResponseDTO.class)
                 .block();
     }
+
 }

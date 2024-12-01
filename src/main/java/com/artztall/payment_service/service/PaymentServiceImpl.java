@@ -49,10 +49,10 @@ public class PaymentServiceImpl implements PaymentService {
 
             // Create parameters for Stripe
             PaymentIntentCreateParams createParams = PaymentIntentCreateParams.builder()
-                    .setAmount(orderResponseDTO.getTotalAmount().longValue())
+                    .setAmount(orderResponseDTO.getTotalAmount().longValue()*100)
                     .setCurrency(paymentRequest.getCurrency())
                     .setPaymentMethod(paymentRequest.getPaymentMethodId())
-                    .setConfirmationMethod(PaymentIntentCreateParams.ConfirmationMethod.MANUAL)
+                    .setConfirmationMethod(PaymentIntentCreateParams.ConfirmationMethod.AUTOMATIC)
                     .setSetupFutureUsage(PaymentIntentCreateParams.SetupFutureUsage.OFF_SESSION)
                     .build();
 
@@ -113,9 +113,9 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             log.info("Confirming payment for paymentIntentId: {}", paymentIntentId);
 
-            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
-            PaymentIntentConfirmParams confirmParams = PaymentIntentConfirmParams.builder().build();
-            paymentIntent.confirm(confirmParams);
+//            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
+//            PaymentIntentConfirmParams confirmParams = PaymentIntentConfirmParams.builder().build();
+//            paymentIntent.confirm(confirmParams);
 
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
             if (payment == null) {
@@ -144,7 +144,7 @@ public class PaymentServiceImpl implements PaymentService {
                     .message("Payment confirmed successfully")
                     .build();
 
-        } catch (StripeException e) {
+        } catch (Exception e) {
             log.error("Payment confirmation failed for paymentIntentId: {}", paymentIntentId, e);
 
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
