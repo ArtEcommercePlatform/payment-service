@@ -1,10 +1,6 @@
 package com.artztall.payment_service.service;
 
-import com.artztall.payment_service.dto.NotificationSendDTO;
-import com.artztall.payment_service.dto.OrderResponseDTO;
-import com.artztall.payment_service.dto.OrderItemResponseDTO;
-import com.artztall.payment_service.dto.PaymentRequestDTO;
-import com.artztall.payment_service.dto.PaymentResponseDTO;
+import com.artztall.payment_service.dto.*;
 import com.artztall.payment_service.exception.PaymentNotFoundException;
 import com.artztall.payment_service.exception.PaymentProcessingException;
 import com.artztall.payment_service.model.Payment;
@@ -16,6 +12,7 @@ import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.RefundCreateParams;
+import com.stripe.param.PaymentIntentConfirmParams;
 import com.stripe.net.RequestOptions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -50,7 +46,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             // Create parameters for Stripe
             PaymentIntentCreateParams createParams = PaymentIntentCreateParams.builder()
-                    .setAmount(orderResponseDTO.getTotalAmount().multiply(BigDecimal.valueOf(100)).longValue())
+                    .setAmount(orderResponseDTO.getTotalAmount().longValue()*100)
                     .setCurrency(paymentRequest.getCurrency())
                     .setPaymentMethod(paymentRequest.getPaymentMethodId())
                     .setConfirmationMethod(PaymentIntentCreateParams.ConfirmationMethod.AUTOMATIC)
@@ -93,16 +89,17 @@ public class PaymentServiceImpl implements PaymentService {
             return PaymentResponseDTO.builder()
                     .paymentId(payment.getId())
                     .clientSecret(paymentIntent.getClientSecret())
-                    .status(PaymentStatus.PENDING)
+                    .paymentStatus(PaymentStatus.PENDING)
                     .expiresAt(payment.getExpiresAt())
                     .message("Payment created successfully")
                     .build();
 
+
         } catch (StripeException e) {
             log.error("Stripe payment processing failed for order: {}", paymentRequest.getOrderId(), e);
-            releaseProductForOrder(paymentRequest.getOrderId());
+            releaseProductsForOrder(paymentRequest.getOrderId());
             return PaymentResponseDTO.builder()
-                    .status(PaymentStatus.FAILED)
+                    .paymentStatus(PaymentStatus.FAILED)
                     .message(e.getMessage())
                     .build();
         }
@@ -114,6 +111,10 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             log.info("Confirming payment for paymentIntentId: {}", paymentIntentId);
 
+//            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
+//            PaymentIntentConfirmParams confirmParams = PaymentIntentConfirmParams.builder().build();
+//            paymentIntent.confirm(confirmParams);
+
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
             if (payment == null) {
                 throw new PaymentNotFoundException("Payment not found for intent: " + paymentIntentId);
@@ -124,7 +125,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setUpdatedAt(LocalDateTime.now());
             payment = paymentRepository.save(payment);
 
-            // Update order status to confirm
+            // Update order status to confirmed
             orderClientService.updateOrderStatus(payment.getOrderId(), OrderStatus.CONFIRMED);
 
             // Send success notification
@@ -137,7 +138,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             return PaymentResponseDTO.builder()
                     .paymentId(payment.getId())
-                    .status(PaymentStatus.COMPLETED)
+                    .paymentStatus(PaymentStatus.COMPLETED)
                     .message("Payment confirmed successfully")
                     .build();
 
@@ -146,7 +147,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
             if (payment != null) {
-                releaseProductForOrder(payment.getOrderId());
+                releaseProductsForOrder(payment.getOrderId());
 
                 // Send failure notification
                 NotificationSendDTO notification = new NotificationSendDTO();
@@ -158,7 +159,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             return PaymentResponseDTO.builder()
-                    .status(PaymentStatus.FAILED)
+                    .paymentStatus(PaymentStatus.FAILED)
                     .message("Payment confirmation failed: " + e.getMessage())
                     .build();
         }
@@ -193,7 +194,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment = paymentRepository.save(payment);
 
             // Release products back to inventory
-            releaseProductForOrder(payment.getOrderId());
+            releaseProductsForOrder(payment.getOrderId());
 
             // Send refund notification
             NotificationSendDTO notification = new NotificationSendDTO();
@@ -205,14 +206,14 @@ public class PaymentServiceImpl implements PaymentService {
 
             return PaymentResponseDTO.builder()
                     .paymentId(payment.getId())
-                    .status(PaymentStatus.REFUNDED)
+                    .paymentStatus(PaymentStatus.REFUNDED)
                     .message("Payment refunded successfully")
                     .build();
 
         } catch (StripeException e) {
             log.error("Refund failed for payment: {}", paymentId, e);
             return PaymentResponseDTO.builder()
-                    .status(PaymentStatus.FAILED)
+                    .paymentStatus(PaymentStatus.FAILED)
                     .message("Refund processing failed: " + e.getMessage())
                     .build();
         }
@@ -225,7 +226,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         return PaymentResponseDTO.builder()
                 .paymentId(payment.getId())
-                .status(payment.getPaymentStatus())
+                .paymentStatus(payment.getPaymentStatus())
                 .expiresAt(payment.getExpiresAt())
                 .message("Payment status: " + payment.getPaymentStatus())
                 .build();
@@ -243,7 +244,7 @@ public class PaymentServiceImpl implements PaymentService {
         for (Payment payment : expiredPayments) {
             try {
                 // Release products back to inventory
-                releaseProductForOrder(payment.getOrderId());
+                releaseProductsForOrder(payment.getOrderId());
 
                 // Update payment status
                 payment.setPaymentStatus(PaymentStatus.EXPIRED);
@@ -267,18 +268,19 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    private void releaseProductForOrder(String orderId) {
+    private void releaseProductsForOrder(String orderId) {
         try {
             OrderResponseDTO order = orderClientService.getOrder(orderId);
             OrderItemResponseDTO item = order.getItem();
-            try {
-                productClientService.releaseProduct(item.getProductId());
-            } catch (Exception e) {
-                log.error("Failed to release product {} for order {}",
-                        item.getProductId(), orderId, e);
-            }
+                try {
+                    productClientService.releaseProduct(item.getProductId());
+                } catch (Exception e) {
+                    log.error("Failed to release product {} for order {}",
+                            item.getProductId(), orderId, e);
+                }
+
         } catch (Exception e) {
-            log.error("Failed to release product for order {}", orderId, e);
+            log.error("Failed to release products for order {}", orderId, e);
         }
     }
 
