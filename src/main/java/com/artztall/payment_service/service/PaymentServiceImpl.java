@@ -2,6 +2,7 @@ package com.artztall.payment_service.service;
 
 import com.artztall.payment_service.dto.NotificationSendDTO;
 import com.artztall.payment_service.dto.OrderResponseDTO;
+import com.artztall.payment_service.dto.OrderItemResponseDTO;
 import com.artztall.payment_service.dto.PaymentRequestDTO;
 import com.artztall.payment_service.dto.PaymentResponseDTO;
 import com.artztall.payment_service.exception.PaymentNotFoundException;
@@ -15,7 +16,6 @@ import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.RefundCreateParams;
-import com.stripe.param.PaymentIntentConfirmParams;
 import com.stripe.net.RequestOptions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -49,7 +50,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             // Create parameters for Stripe
             PaymentIntentCreateParams createParams = PaymentIntentCreateParams.builder()
-                    .setAmount(orderResponseDTO.getTotalAmount().longValue()*100)
+                    .setAmount(orderResponseDTO.getTotalAmount().multiply(BigDecimal.valueOf(100)).longValue())
                     .setCurrency(paymentRequest.getCurrency())
                     .setPaymentMethod(paymentRequest.getPaymentMethodId())
                     .setConfirmationMethod(PaymentIntentCreateParams.ConfirmationMethod.AUTOMATIC)
@@ -99,7 +100,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         } catch (StripeException e) {
             log.error("Stripe payment processing failed for order: {}", paymentRequest.getOrderId(), e);
-            releaseProductsForOrder(paymentRequest.getOrderId());
+            releaseProductForOrder(paymentRequest.getOrderId());
             return PaymentResponseDTO.builder()
                     .status(PaymentStatus.FAILED)
                     .message(e.getMessage())
@@ -113,10 +114,6 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             log.info("Confirming payment for paymentIntentId: {}", paymentIntentId);
 
-//            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
-//            PaymentIntentConfirmParams confirmParams = PaymentIntentConfirmParams.builder().build();
-//            paymentIntent.confirm(confirmParams);
-
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
             if (payment == null) {
                 throw new PaymentNotFoundException("Payment not found for intent: " + paymentIntentId);
@@ -127,7 +124,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setUpdatedAt(LocalDateTime.now());
             payment = paymentRepository.save(payment);
 
-            // Update order status to confirmed
+            // Update order status to confirm
             orderClientService.updateOrderStatus(payment.getOrderId(), OrderStatus.CONFIRMED);
 
             // Send success notification
@@ -149,7 +146,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
             if (payment != null) {
-                releaseProductsForOrder(payment.getOrderId());
+                releaseProductForOrder(payment.getOrderId());
 
                 // Send failure notification
                 NotificationSendDTO notification = new NotificationSendDTO();
@@ -196,7 +193,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment = paymentRepository.save(payment);
 
             // Release products back to inventory
-            releaseProductsForOrder(payment.getOrderId());
+            releaseProductForOrder(payment.getOrderId());
 
             // Send refund notification
             NotificationSendDTO notification = new NotificationSendDTO();
@@ -246,7 +243,7 @@ public class PaymentServiceImpl implements PaymentService {
         for (Payment payment : expiredPayments) {
             try {
                 // Release products back to inventory
-                releaseProductsForOrder(payment.getOrderId());
+                releaseProductForOrder(payment.getOrderId());
 
                 // Update payment status
                 payment.setPaymentStatus(PaymentStatus.EXPIRED);
@@ -270,19 +267,18 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    private void releaseProductsForOrder(String orderId) {
+    private void releaseProductForOrder(String orderId) {
         try {
             OrderResponseDTO order = orderClientService.getOrder(orderId);
-            order.getItems().forEach(item -> {
-                try {
-                    productClientService.releaseProduct(item.getProductId());
-                } catch (Exception e) {
-                    log.error("Failed to release product {} for order {}",
-                            item.getProductId(), orderId, e);
-                }
-            });
+            OrderItemResponseDTO item = order.getItem();
+            try {
+                productClientService.releaseProduct(item.getProductId());
+            } catch (Exception e) {
+                log.error("Failed to release product {} for order {}",
+                        item.getProductId(), orderId, e);
+            }
         } catch (Exception e) {
-            log.error("Failed to release products for order {}", orderId, e);
+            log.error("Failed to release product for order {}", orderId, e);
         }
     }
 
