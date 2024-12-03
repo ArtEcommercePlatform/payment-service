@@ -3,7 +3,6 @@ package com.artztall.payment_service.service;
 
 import com.artztall.payment_service.dto.OrderResponseDTO;
 import com.artztall.payment_service.model.OrderStatus;
-import com.artztall.payment_service.model.PaymentStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;

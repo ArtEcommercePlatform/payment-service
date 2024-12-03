@@ -2,11 +2,13 @@ package com.artztall.payment_service.service;
 
 import com.artztall.payment_service.dto.OrderResponseDTO;
 import com.artztall.payment_service.model.OrderStatus;
+import com.artztall.payment_service.model.PaymentStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -39,19 +41,15 @@ class OrderClientServiceTest {
         requestHeadersSpec = mock(WebClient.RequestHeadersSpec.class);
         responseSpec = mock(WebClient.ResponseSpec.class);
 
-        when(orderServiceWebClient.get()).thenReturn((WebClient.RequestHeadersUriSpec<?>) requestHeadersUriSpec);
-        when(orderServiceWebClient.put()).thenReturn((WebClient.RequestHeadersUriSpec<?>) requestHeadersUriSpec);
-        when(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec);
+        //when(orderServiceWebClient.get()).thenReturn((WebClient.RequestHeadersUriSpec<?>) requestHeadersUriSpec);
+       // when(orderServiceWebClient.put()).thenReturn((WebClient.RequestHeadersUriSpec<?>) requestHeadersUriSpec);
+        //when(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec);
         when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
     }
 
-
     @Test
     void testGetOrder_Success() {
-        OrderResponseDTO mockResponse = new OrderResponseDTO();
-        mockResponse.setId("order123");
-        mockResponse.setTotalAmount(BigDecimal.valueOf(100.00));
-        mockResponse.setCreatedAt(LocalDateTime.now());
+        OrderResponseDTO mockResponse = createMockOrderResponse();
 
         when(responseSpec.bodyToMono(OrderResponseDTO.class)).thenReturn(Mono.just(mockResponse));
 
@@ -59,6 +57,7 @@ class OrderClientServiceTest {
 
         assertNotNull(result);
         assertEquals("order123", result.getId());
+        assertEquals(BigDecimal.valueOf(100.00), result.getTotalAmount());
         verify(orderServiceWebClient).get();
         verify(requestHeadersUriSpec).uri("/api/orders/order123");
     }
@@ -74,7 +73,10 @@ class OrderClientServiceTest {
 
     @Test
     void testUpdateOrderStatus_Success() {
-        when(responseSpec.bodyToMono(OrderResponseDTO.class)).thenReturn(Mono.just(new OrderResponseDTO()));
+        OrderResponseDTO updatedOrder = createMockOrderResponse();
+        updatedOrder.setStatus(OrderStatus.SHIPPED);
+
+        when(responseSpec.bodyToMono(OrderResponseDTO.class)).thenReturn(Mono.just(updatedOrder));
 
         orderClientService.updateOrderStatus("order123", OrderStatus.SHIPPED);
 
@@ -87,10 +89,13 @@ class OrderClientServiceTest {
 
     @Test
     void testGetArtisansOrders_Success() {
-        OrderResponseDTO mockOrder = new OrderResponseDTO();
-        mockOrder.setId("order123");
+        OrderResponseDTO mockOrder = createMockOrderResponse();
 
-        when(responseSpec.bodyToMono(any())).thenReturn(Mono.just(Collections.singletonList(mockOrder)));
+        // Use the correct ParameterizedTypeReference
+        ParameterizedTypeReference<List<OrderResponseDTO>> typeReference =
+                new ParameterizedTypeReference<List<OrderResponseDTO>>() {};
+
+        when(responseSpec.bodyToMono(typeReference)).thenReturn(Mono.just(Collections.singletonList(mockOrder)));
 
         List<OrderResponseDTO> result = orderClientService.getArtisansOrders("artisan123");
 
@@ -103,7 +108,11 @@ class OrderClientServiceTest {
 
     @Test
     void testGetArtisansOrders_EmptyList() {
-        when(responseSpec.bodyToMono(any())).thenReturn(Mono.just(Collections.emptyList()));
+        // Use the correct ParameterizedTypeReference
+        ParameterizedTypeReference<List<OrderResponseDTO>> typeReference =
+                new ParameterizedTypeReference<List<OrderResponseDTO>>() {};
+
+        when(responseSpec.bodyToMono(typeReference)).thenReturn(Mono.just(Collections.emptyList()));
 
         List<OrderResponseDTO> result = orderClientService.getArtisansOrders("artisan123");
 
@@ -111,5 +120,17 @@ class OrderClientServiceTest {
         assertTrue(result.isEmpty());
         verify(orderServiceWebClient).get();
         verify(requestHeadersUriSpec).uri("/api/orders/artisan/artisan123");
+    }
+
+    // Helper method to create a mock OrderResponseDTO
+    private OrderResponseDTO createMockOrderResponse() {
+        OrderResponseDTO mockOrder = new OrderResponseDTO();
+        mockOrder.setId("order123");
+        mockOrder.setTotalAmount(BigDecimal.valueOf(100.00));
+        mockOrder.setCreatedAt(LocalDateTime.now());
+        mockOrder.setStatus(OrderStatus.PENDING);
+        mockOrder.setPaymentStatus(PaymentStatus.PENDING);
+        mockOrder.setUserId("user123");
+        return mockOrder;
     }
 }

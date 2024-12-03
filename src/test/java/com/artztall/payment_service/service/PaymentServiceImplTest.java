@@ -4,6 +4,7 @@ import com.artztall.payment_service.dto.OrderResponseDTO;
 import com.artztall.payment_service.dto.PaymentRequestDTO;
 import com.artztall.payment_service.dto.PaymentResponseDTO;
 import com.artztall.payment_service.exception.PaymentNotFoundException;
+import com.artztall.payment_service.model.OrderStatus;
 import com.artztall.payment_service.model.Payment;
 import com.artztall.payment_service.model.PaymentStatus;
 import com.artztall.payment_service.repository.PaymentRepository;
@@ -79,7 +80,7 @@ class PaymentServiceImplTest {
 
         // Assert
         assertNotNull(response);
-        assertEquals(PaymentStatus.PENDING, response.getStatus());
+        assertEquals(PaymentStatus.PENDING, response.getPaymentStatus());
         assertEquals("secret_test", response.getClientSecret());
 
         verify(notificationClientService, times(1)).sendNotification(any());
@@ -98,14 +99,14 @@ class PaymentServiceImplTest {
         orderResponseDTO.setTotalAmount(BigDecimal.valueOf(100.00));
 
         when(orderClientService.getOrder(eq("order_123"))).thenReturn(orderResponseDTO);
-        when(PaymentIntent.create(any(), any(RequestOptions.class))).thenThrow(StripeException.class);
+        when(PaymentIntent.create((Map<String, Object>) any(), any(RequestOptions.class))).thenThrow(StripeException.class);
 
         // Act
         PaymentResponseDTO response = paymentService.createPayment(paymentRequestDTO);
 
         // Assert
         assertNotNull(response);
-        assertEquals(PaymentStatus.FAILED, response.getStatus());
+        assertEquals(PaymentStatus.FAILED, response.getPaymentStatus());
 
         verify(productClientService, times(1)).releaseProduct(any());
     }
@@ -129,7 +130,7 @@ class PaymentServiceImplTest {
 
         // Assert
         assertNotNull(response);
-        assertEquals(PaymentStatus.COMPLETED, response.getStatus());
+        assertEquals(PaymentStatus.COMPLETED, response.getPaymentStatus());
 
         verify(orderClientService, times(1)).updateOrderStatus(eq("order_123"), eq(OrderStatus.CONFIRMED));
         verify(notificationClientService, times(1)).sendNotification(any());
@@ -164,7 +165,7 @@ class PaymentServiceImplTest {
 
         // Assert
         assertNotNull(response);
-        assertEquals(PaymentStatus.REFUNDED, response.getStatus());
+        assertEquals(PaymentStatus.REFUNDED, response.getPaymentStatus());
 
         verify(productClientService, times(1)).releaseProduct(any());
         verify(notificationClientService, times(1)).sendNotification(any());
