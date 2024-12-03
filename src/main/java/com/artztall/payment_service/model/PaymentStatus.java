@@ -1,6 +1,6 @@
 package com.artztall.payment_service.model;
 
-import lombok.AllArgsConstructor;
+
 import lombok.NoArgsConstructor;
 
 @NoArgsConstructor
