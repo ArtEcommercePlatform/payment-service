@@ -2,6 +2,7 @@ package com.artztall.payment_service.controller;
 
 import com.artztall.payment_service.dto.PaymentRequestDTO;
 import com.artztall.payment_service.dto.PaymentResponseDTO;
+import com.artztall.payment_service.dto.UserPaymentResponseDTO;
 import com.artztall.payment_service.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -13,6 +14,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/payments")
@@ -78,5 +81,17 @@ public class PaymentController {
             @Parameter(description = "Payment intent identifier")
             @PathVariable String paymentIntentId) {
         return ResponseEntity.ok(paymentService.getPaymentStatus(paymentIntentId));
+    }
+
+    @GetMapping("/artisan/{artisanId}")
+    public ResponseEntity<List<UserPaymentResponseDTO>> getCompletedPaymentsForArtisan(@PathVariable String artisanId) {
+        List<UserPaymentResponseDTO> completedPayments = paymentService.getCompletedPaymentsForArtisan(artisanId);
+        return ResponseEntity.ok(completedPayments);
+    }
+
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<UserPaymentResponseDTO>> getPaymentsByUser(@PathVariable String userId) {
+        List<UserPaymentResponseDTO> userPayments = paymentService.findByUserId(userId);
+        return ResponseEntity.ok(userPayments);
     }
 }

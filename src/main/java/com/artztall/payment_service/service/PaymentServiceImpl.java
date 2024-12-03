@@ -23,6 +23,8 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -111,9 +113,6 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             log.info("Confirming payment for paymentIntentId: {}", paymentIntentId);
 
-//            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
-//            PaymentIntentConfirmParams confirmParams = PaymentIntentConfirmParams.builder().build();
-//            paymentIntent.confirm(confirmParams);
 
             Payment payment = paymentRepository.findByStripPaymentIntendId(paymentIntentId);
             if (payment == null) {
@@ -266,6 +265,57 @@ public class PaymentServiceImpl implements PaymentService {
                 log.error("Error handling expired payment: {}", payment.getId(), e);
             }
         }
+    }
+
+
+    public List<UserPaymentResponseDTO> getCompletedPaymentsForArtisan(String artisanId) {
+        // Get orders for the artisan
+        List<OrderResponseDTO> artisanOrders = orderClientService.getArtisansOrders(artisanId);
+
+        // Filter and collect completed payments
+        return artisanOrders.stream()
+                .map(order -> {
+                    try {
+                        // Find payment by order ID and check if it's completed
+                        Payment payment = paymentRepository.findByOrderId(order.getId());
+                        if (payment != null && payment.getPaymentStatus() == PaymentStatus.COMPLETED) {
+                            return UserPaymentResponseDTO.builder()
+                                    .id(payment.getId())
+                                    .paymentStatus(payment.getPaymentStatus())
+                                    .amount(payment.getAmount())
+                                    .stripPaymentIntendId(payment.getStripPaymentIntendId())
+                                    .orderId(payment.getOrderId())
+                                    .userId(payment.getUserId())
+                                    .createdAt(LocalDateTime.now())
+                                    .currency(payment.getCurrency())
+                                    .expiresAt(payment.getExpiresAt())
+                                    .build();
+                        }
+                        return null;
+                    } catch (Exception e) {
+                        log.error("Error finding payment for order: {}", order.getId(), e);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    public List<UserPaymentResponseDTO> findByUserId(String userId) {
+        List<Payment> payments = paymentRepository.findByUserId(userId);
+        return payments.stream()
+                .map(payment -> UserPaymentResponseDTO.builder()
+                        .id(payment.getId())
+                        .paymentStatus(payment.getPaymentStatus())
+                        .amount(payment.getAmount())
+                        .stripPaymentIntendId(payment.getStripPaymentIntendId())
+                        .orderId(payment.getOrderId())
+                        .userId(payment.getUserId())
+                        .createdAt(payment.getCreatedAt())
+                        .currency(payment.getCurrency())
+                        .expiresAt(payment.getExpiresAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     private void releaseProductsForOrder(String orderId) {

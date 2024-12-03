@@ -1,27 +1,23 @@
 package com.artztall.payment_service.dto;
 
 import com.artztall.payment_service.model.PaymentStatus;
-import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
+
 
 import java.time.LocalDateTime;
 
 @Data
 @Builder
-@Schema(description = "Payment response information")
-public class PaymentResponseDTO {
-
-    private String paymentId;
-
+public class UserPaymentResponseDTO {
+    private String id;
     private String orderId;
-
-    private String clientSecret;
-
+    private String userId;
+    private Long amount;
+    private String currency;
+    private String stripPaymentIntendId;
     private PaymentStatus paymentStatus;
-    private double amount;
-
-    private String message;
-
     private LocalDateTime expiresAt;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

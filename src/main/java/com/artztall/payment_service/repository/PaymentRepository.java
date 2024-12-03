@@ -11,4 +11,6 @@ public interface PaymentRepository extends MongoRepository<Payment, String> {
     Payment findByStripPaymentIntendId(String stripPaymentIntendId);
 
     List<Payment> findByPaymentStatusAndExpiresAtBefore(PaymentStatus paymentStatus, LocalDateTime now);
+    Payment findByOrderId(String orderId);
+    List<Payment> findByUserId(String userId);
 }

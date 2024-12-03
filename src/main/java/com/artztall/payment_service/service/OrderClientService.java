@@ -3,9 +3,13 @@ package com.artztall.payment_service.service;
 
 import com.artztall.payment_service.dto.OrderResponseDTO;
 import com.artztall.payment_service.model.OrderStatus;
+import com.artztall.payment_service.model.PaymentStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +32,14 @@ public class OrderClientService {
                         .build(orderId))
                 .retrieve()
                 .bodyToMono(OrderResponseDTO.class)
+                .block();
+    }
+
+    public List<OrderResponseDTO> getArtisansOrders(String artisanId) {
+        return orderServiceWebClient.get()
+                .uri("/api/orders/artisan/" + artisanId)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<List<OrderResponseDTO>>() {})
                 .block();
     }
 
