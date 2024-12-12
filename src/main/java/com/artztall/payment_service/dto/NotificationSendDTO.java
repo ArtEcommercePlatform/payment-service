@@ -1,7 +1,6 @@
 package com.artztall.payment_service.dto;
 
 
-import lombok.Builder;
 import lombok.Data;
 
 @Data

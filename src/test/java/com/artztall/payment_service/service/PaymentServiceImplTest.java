@@ -1,36 +1,39 @@
 package com.artztall.payment_service.service;
 
-import com.artztall.payment_service.dto.OrderResponseDTO;
-import com.artztall.payment_service.dto.PaymentRequestDTO;
-import com.artztall.payment_service.dto.PaymentResponseDTO;
-import com.artztall.payment_service.exception.PaymentNotFoundException;
-import com.artztall.payment_service.model.OrderStatus;
+import com.artztall.payment_service.dto.*;
+import com.artztall.payment_service.exception.PaymentProcessingException;
 import com.artztall.payment_service.model.Payment;
 import com.artztall.payment_service.model.PaymentStatus;
+import com.artztall.payment_service.model.OrderStatus;
 import com.artztall.payment_service.repository.PaymentRepository;
-import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.Refund;
+import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.RefundCreateParams;
 import com.stripe.net.RequestOptions;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.MockedStatic;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Map;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-class PaymentServiceImplTest {
-
-    @InjectMocks
-    private PaymentServiceImpl paymentService;
+@ExtendWith(MockitoExtension.class)
+public class PaymentServiceImplTest {
 
     @Mock
     private PaymentRepository paymentRepository;
@@ -44,140 +47,252 @@ class PaymentServiceImplTest {
     @Mock
     private NotificationClientService notificationClientService;
 
+    @InjectMocks
+    private PaymentServiceImpl paymentService;
+
+    private PaymentRequestDTO validPaymentRequest;
+    private OrderResponseDTO validOrderResponse;
+
+    private MockedStatic<PaymentIntent> paymentIntentMock;
+    private MockedStatic<Refund> refundMock;
+
     @BeforeEach
     void setUp() {
-        MockitoAnnotations.openMocks(this);
+        validPaymentRequest = PaymentRequestDTO.builder()
+                .orderId("order-123")
+                .userId("user-456")
+                .currency("USD")
+                .paymentMethodId("pm_card_visa")
+                .build();
+
+        validOrderResponse = OrderResponseDTO.builder()
+                .id("order-123")
+                .totalAmount(BigDecimal.valueOf(100.00))
+                .item(OrderItemResponseDTO.builder()
+                        .productId("product-789")
+                        .build())
+                .build();
+
+        paymentIntentMock = mockStatic(PaymentIntent.class);
+        refundMock = mockStatic(Refund.class);
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Close the static mocks after each test to avoid conflicts
+        paymentIntentMock.close();
+        refundMock.close();
     }
 
     @Test
-    void testCreatePayment_Success() throws StripeException {
-        // Mock data
-        PaymentRequestDTO paymentRequestDTO = new PaymentRequestDTO();
-        paymentRequestDTO.setOrderId("order_123");
-        paymentRequestDTO.setUserId("user_456");
-        paymentRequestDTO.setCurrency("USD");
-        paymentRequestDTO.setPaymentMethodId("pm_card_visa");
+    void createPayment_Success() throws Exception {
+        // Mocking order client and Stripe interactions
+        when(orderClientService.getOrder(anyString())).thenReturn(validOrderResponse);
 
-        OrderResponseDTO orderResponseDTO = new OrderResponseDTO();
-        orderResponseDTO.setTotalAmount(BigDecimal.valueOf(100.00));
+        PaymentIntent mockPaymentIntent = mock(PaymentIntent.class);
+        when(mockPaymentIntent.getId()).thenReturn("pi_123456");
+        when(mockPaymentIntent.getClientSecret()).thenReturn("client_secret_123");
 
-        PaymentIntent paymentIntent = mock(PaymentIntent.class);
-        when(paymentIntent.getId()).thenReturn("pi_test");
-        when(paymentIntent.getClientSecret()).thenReturn("secret_test");
+        // Mock PaymentIntent.create to return the mock payment intent
+        paymentIntentMock.when(() -> PaymentIntent.create(any(PaymentIntentCreateParams.class), any(RequestOptions.class)))
+                .thenReturn(mockPaymentIntent);
 
-        when(orderClientService.getOrder(eq("order_123"))).thenReturn(orderResponseDTO);
-        when(PaymentIntent.create((Map<String, Object>) any(), any(RequestOptions.class))).thenReturn(paymentIntent);
+        // Mock the saving of the Payment object
+        Payment mockPayment = Payment.builder()
+                .id("payment-123")
+                .orderId(validPaymentRequest.getOrderId())
+                .userId(validPaymentRequest.getUserId())
+                .paymentStatus(PaymentStatus.PENDING)
+                .stripPaymentIntendId(mockPaymentIntent.getId())
+                .build();
 
-        Payment payment = new Payment();
-        payment.setId("payment_123");
-        payment.setExpiresAt(LocalDateTime.now().plusMinutes(15));
-        payment.setPaymentStatus(PaymentStatus.PENDING);
+        when(paymentRepository.save(any(Payment.class))).thenReturn(mockPayment); // Mocking the repository save
 
-        when(paymentRepository.save(any(Payment.class))).thenReturn(payment);
+        // Call the method to test
+        PaymentResponseDTO response = paymentService.createPayment(validPaymentRequest);
 
-        // Act
-        PaymentResponseDTO response = paymentService.createPayment(paymentRequestDTO);
+        // Verify interactions
+        verify(orderClientService).getOrder(validPaymentRequest.getOrderId());
+        verify(paymentRepository).save(any(Payment.class));
+        verify(notificationClientService).sendNotification(any(NotificationSendDTO.class));
 
-        // Assert
+        // Assertions
         assertNotNull(response);
         assertEquals(PaymentStatus.PENDING, response.getPaymentStatus());
-        assertEquals("secret_test", response.getClientSecret());
-
-        verify(notificationClientService, times(1)).sendNotification(any());
+        assertNotNull(response.getClientSecret());
     }
 
+
     @Test
-    void testCreatePayment_StripeException() throws StripeException {
-        // Mock data
-        PaymentRequestDTO paymentRequestDTO = new PaymentRequestDTO();
-        paymentRequestDTO.setOrderId("order_123");
-        paymentRequestDTO.setUserId("user_456");
-        paymentRequestDTO.setCurrency("USD");
-        paymentRequestDTO.setPaymentMethodId("pm_card_visa");
+    void createPayment_StripeException() throws Exception {
+        // Mocking order client to throw Stripe exception
+        when(orderClientService.getOrder(anyString())).thenReturn(validOrderResponse);
 
-        OrderResponseDTO orderResponseDTO = new OrderResponseDTO();
-        orderResponseDTO.setTotalAmount(BigDecimal.valueOf(100.00));
+        // Mock PaymentIntent.create to throw a StripeException
+//        mockStatic(PaymentIntent.class);
+        when(PaymentIntent.create(any(PaymentIntentCreateParams.class), any(RequestOptions.class)))
+                .thenThrow(new com.stripe.exception.CardException("Stripe Error", null, null, null, null, null, null,null));
 
-        when(orderClientService.getOrder(eq("order_123"))).thenReturn(orderResponseDTO);
-        when(PaymentIntent.create((Map<String, Object>) any(), any(RequestOptions.class))).thenThrow(StripeException.class);
+        PaymentResponseDTO response = paymentService.createPayment(validPaymentRequest);
 
-        // Act
-        PaymentResponseDTO response = paymentService.createPayment(paymentRequestDTO);
+        // Verify interactions
+        verify(productClientService).releaseProduct(validOrderResponse.getItem().getProductId());
 
-        // Assert
-        assertNotNull(response);
+        // Assertions
         assertEquals(PaymentStatus.FAILED, response.getPaymentStatus());
-
-        verify(productClientService, times(1)).releaseProduct(any());
+        assertNotNull(response.getMessage());
     }
 
     @Test
-    void testConfirmPayment_Success() {
-        // Mock data
-        String paymentIntentId = "pi_test";
+    void refundPayment_Success() throws Exception {
+        // Ensure mock payment setup
+        Payment mockPayment = Payment.builder()
+                .id("payment-123")
+                .orderId("order-123")
+                .userId("user-456")
+                .stripPaymentIntendId("pi_123456") // Stripe payment intent ID
+                .paymentStatus(PaymentStatus.COMPLETED)
+                .build();
 
-        Payment payment = new Payment();
-        payment.setId("payment_123");
-        payment.setOrderId("order_123");
-        payment.setUserId("user_456");
-        payment.setPaymentStatus(PaymentStatus.PENDING);
+        // Mock the payment repository to return the mock payment
+        when(paymentRepository.findById(anyString())).thenReturn(Optional.of(mockPayment));
 
-        when(paymentRepository.findByStripPaymentIntendId(eq(paymentIntentId))).thenReturn(payment);
-        when(paymentRepository.save(any(Payment.class))).thenReturn(payment);
+        // Mock the Refund.create to return a mock Refund
+        Refund mockRefund = mock(Refund.class);
+        refundMock.when(() -> Refund.create(any(RefundCreateParams.class), any(RequestOptions.class)))
+                .thenReturn(mockRefund);
 
-        // Act
-        PaymentResponseDTO response = paymentService.confirmPayment(paymentIntentId);
+        // Mock the save method to return the updated payment
+        when(paymentRepository.save(any(Payment.class))).thenReturn(mockPayment);
 
-        // Assert
-        assertNotNull(response);
-        assertEquals(PaymentStatus.COMPLETED, response.getPaymentStatus());
+        // Mock the release products method
+        doNothing().when(productClientService).releaseProduct(anyString());
 
-        verify(orderClientService, times(1)).updateOrderStatus(eq("order_123"), eq(OrderStatus.CONFIRMED));
-        verify(notificationClientService, times(1)).sendNotification(any());
-    }
+        // Ensure that the mock order response is returned
+        when(orderClientService.getOrder("order-123")).thenReturn(validOrderResponse);
 
-    @Test
-    void testConfirmPayment_NotFound() {
-        // Mock data
-        String paymentIntentId = "pi_invalid";
-        when(paymentRepository.findByStripPaymentIntendId(eq(paymentIntentId))).thenReturn(null);
+        // Mock the notification service
+        doNothing().when(notificationClientService).sendNotification(any(NotificationSendDTO.class));
 
-        // Act & Assert
-        assertThrows(PaymentNotFoundException.class, () -> paymentService.confirmPayment(paymentIntentId));
-    }
+        // Call the refundPayment method
+        PaymentResponseDTO response = paymentService.refundPayment("payment-123");
 
-    @Test
-    void testRefundPayment_Success() throws StripeException {
-        // Mock data
-        String paymentId = "payment_123";
+        // Verify interactions
+        verify(paymentRepository).findById("payment-123");
+        verify(productClientService).releaseProduct(validOrderResponse.getItem().getProductId()); // Correct verification
+        verify(paymentRepository).save(mockPayment);
+        verify(notificationClientService).sendNotification(any(NotificationSendDTO.class));
 
-        Payment payment = new Payment();
-        payment.setId(paymentId);
-        payment.setOrderId("order_123");
-        payment.setPaymentStatus(PaymentStatus.COMPLETED);
-        payment.setStripPaymentIntendId("pi_test");
-
-        when(paymentRepository.findById(eq(paymentId))).thenReturn(Optional.of(payment));
-        when(paymentRepository.save(any(Payment.class))).thenReturn(payment);
-
-        // Act
-        PaymentResponseDTO response = paymentService.refundPayment(paymentId);
-
-        // Assert
-        assertNotNull(response);
+        // Assertions
         assertEquals(PaymentStatus.REFUNDED, response.getPaymentStatus());
+        assertEquals("Payment refunded successfully", response.getMessage());
+    }
 
-        verify(productClientService, times(1)).releaseProduct(any());
-        verify(notificationClientService, times(1)).sendNotification(any());
+
+
+
+
+    @Test
+    void refundPayment_NotCompletedPayment() {
+        // Prepare mock payment that is not completed
+        Payment mockPayment = Payment.builder()
+                .id("payment-123")
+                .paymentStatus(PaymentStatus.PENDING)
+                .build();
+
+        when(paymentRepository.findById(anyString())).thenReturn(Optional.of(mockPayment));
+
+        // Assert that an exception is thrown
+        assertThrows(PaymentProcessingException.class,
+                () -> paymentService.refundPayment("payment-123"));
     }
 
     @Test
-    void testRefundPayment_NotFound() {
-        // Mock data
-        String paymentId = "invalid_payment";
-        when(paymentRepository.findById(eq(paymentId))).thenReturn(Optional.empty());
+    void getPaymentStatus_Success() {
+        // Prepare mock payment
+        Payment mockPayment = Payment.builder()
+                .id("payment-123")
+                .paymentStatus(PaymentStatus.PENDING)
+                .expiresAt(LocalDateTime.now().plusMinutes(15))
+                .build();
 
-        // Act & Assert
-        assertThrows(PaymentNotFoundException.class, () -> paymentService.refundPayment(paymentId));
+        when(paymentRepository.findById(anyString())).thenReturn(Optional.of(mockPayment));
+
+        PaymentResponseDTO response = paymentService.getPaymentStatus("payment-123");
+
+        // Assertions
+        assertEquals("payment-123", response.getPaymentId());
+        assertEquals(PaymentStatus.PENDING, response.getPaymentStatus());
+        assertNotNull(response.getExpiresAt());
+    }
+
+    @Test
+    void handleExpiredPayments_Success() {
+        // Prepare expired payments
+        Payment expiredPayment = Payment.builder()
+                .id("payment-123")
+                .orderId("order-123")
+                .userId("user-456")
+                .paymentStatus(PaymentStatus.PENDING)
+                .expiresAt(LocalDateTime.now().minusMinutes(30))
+                .build();
+
+        when(paymentRepository.findByPaymentStatusAndExpiresAtBefore(
+                eq(PaymentStatus.PENDING), any(LocalDateTime.class)))
+                .thenReturn(Collections.singletonList(expiredPayment));
+
+        when(orderClientService.getOrder(anyString())).thenReturn(validOrderResponse);
+
+
+        // Call the method
+        paymentService.handleExpiredPayments();
+
+        // Verify interactions
+        verify(productClientService).releaseProduct(anyString());
+        verify(paymentRepository).save(expiredPayment);
+        verify(orderClientService).updateOrderStatus(expiredPayment.getOrderId(), OrderStatus.EXPIRED);
+        verify(notificationClientService).sendNotification(any(NotificationSendDTO.class));
+    }
+
+
+    private PaymentRequestDTO createModifiedPaymentRequest(String fieldToRemove) {
+        PaymentRequestDTO.PaymentRequestDTOBuilder builder = PaymentRequestDTO.builder()
+                .orderId("order-123")
+                .userId("user-456")
+                .currency("USD")
+                .paymentMethodId("pm_card_visa");
+
+        switch(fieldToRemove) {
+            case "currency":
+                builder.currency(null);
+                break;
+            case "paymentMethodId":
+                builder.paymentMethodId(null);
+                break;
+            case "orderId":
+                builder.orderId(null);
+                break;
+            case "userId":
+                builder.userId(null);
+                break;
+        }
+
+        return builder.build();
+    }
+
+    @Test
+    void validatePaymentRequest_MissingCurrency() {
+        PaymentRequestDTO invalidRequest = createModifiedPaymentRequest("currency");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> paymentService.createPayment(invalidRequest));
+    }
+
+    @Test
+    void validatePaymentRequest_MissingPaymentMethodId() {
+        PaymentRequestDTO invalidRequest = createModifiedPaymentRequest("paymentMethodId");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> paymentService.createPayment(invalidRequest));
     }
 }

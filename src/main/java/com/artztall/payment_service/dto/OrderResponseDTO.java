@@ -3,6 +3,7 @@ package com.artztall.payment_service.dto;
 import com.artztall.payment_service.model.OrderStatus;
 import com.artztall.payment_service.model.PaymentStatus;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -13,6 +14,7 @@ import java.util.List;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public class OrderResponseDTO {
     private String id;
     private String userId;

@@ -2,11 +2,13 @@ package com.artztall.payment_service.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import lombok.Builder;
 import lombok.Data;
 
 
 
 @Data
+@Builder
 @Schema(description = "Payment request information")
 public class PaymentRequestDTO {
 
