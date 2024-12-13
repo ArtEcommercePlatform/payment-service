@@ -13,7 +13,7 @@ public class NotificationClientService {
 
    public void sendNotification(NotificationSendDTO notificationSendDTO) {
        notificationServiceWebClient.post()
-               .uri("/api/notifications/send")
+               .uri("http://13.200.53.211:33001/api/notifications/send")
                .bodyValue(notificationSendDTO)
                .retrieve()
                .bodyToMono(NotificationSendDTO.class)

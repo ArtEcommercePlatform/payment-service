@@ -16,7 +16,7 @@ public class OrderClientService {
     private final WebClient orderServiceWebClient;
     public OrderResponseDTO getOrder(String orderId) {
         return orderServiceWebClient.get()
-                .uri("/api/orders/" + orderId)
+                .uri("http://13.200.53.211:8084/api/orders/" + orderId)
                 .retrieve()
                 .bodyToMono(OrderResponseDTO.class)
                 .block();
@@ -26,7 +26,7 @@ public class OrderClientService {
     public void updateOrderStatus(String orderId, OrderStatus status) {
         orderServiceWebClient.put()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/api/orders/{orderId}/status")
+                        .path("http://13.200.53.211:8084/api/orders/{orderId}/status")
                         .queryParam("status", status)
                         .build(orderId))
                 .retrieve()
@@ -36,7 +36,7 @@ public class OrderClientService {
 
     public List<OrderResponseDTO> getArtisansOrders(String artisanId) {
         return orderServiceWebClient.get()
-                .uri("/api/orders/artisan/" + artisanId)
+                .uri("http://13.200.53.211:8084/api/orders/artisan/" + artisanId)
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<List<OrderResponseDTO>>() {})
                 .block();

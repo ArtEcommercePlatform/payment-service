@@ -15,7 +15,7 @@ public class ProductClientService {
 
     public void releaseProduct(String productId) {
         productServiceWebClient.put()
-                .uri("/api/products/" + productId + "/release")
+                .uri("http://13.200.53.211:8082/api/products/" + productId + "/release")
                 .bodyValue(new ProductAvailabilityRequest(true))
                 .retrieve()
                 .bodyToMono(ProductResponseDTO.class)
